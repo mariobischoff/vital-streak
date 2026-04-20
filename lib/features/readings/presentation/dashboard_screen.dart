@@ -302,7 +302,6 @@ class DashboardScreen extends ConsumerWidget {
       itemCount: leituras.length,
       itemBuilder: (context, index) {
         final leitura = leituras[index];
-        final corCard = _getPressureColor(leitura.systolic, leitura.diastolic);
 
         return Dismissible(
           key: Key(leitura.id.toString()),
@@ -391,11 +390,12 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   String _formatDate(DateTime date) {
-    final d = date.day.toString().padLeft(2, '0');
-    final m = date.month.toString().padLeft(2, '0');
-    final h = date.hour.toString().padLeft(2, '0');
-    final min = date.minute.toString().padLeft(2, '0');
-    return '$d/$m/${date.year} at $h:$min';
+    final localDate = date.toLocal();
+    final d = localDate.day.toString().padLeft(2, '0');
+    final m = localDate.month.toString().padLeft(2, '0');
+    final h = localDate.hour.toString().padLeft(2, '0');
+    final min = localDate.minute.toString().padLeft(2, '0');
+    return '$d/$m/${localDate.year} at $h:$min';
   }
 }
 

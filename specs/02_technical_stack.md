@@ -13,10 +13,14 @@
 ## 3. Intelligence: Google Gemini API
 - **Model**: `gemini-2.5-flash`.
 - **Function**: Multimodal Vision API to interpret LCD displays from images.
-- **Optimization**: Client-side image resizing and compression before upload.
+- **Optimization**: Client-side image resizing to **1200px** (optimized for 7-segment precision) and compression before upload.
 
 ## 4. Architecture: Feature-based Clean Architecture
 Organized into `features/`:
 - `data/`: Repositories, API services, and DTOs.
 - `domain/`: Business logic, entities, and validation rules.
 - `presentation/`: Widgets, Controllers (StateNotifiers), and UI Logic.
+
+## 5. Data Management Standards
+- **Timezones**: All timestamps are stored in **UTC** in the database. Conversion to the user's **Local Time** occurs at the Domain layer (Entity mapping) for display.
+- **Image handling**: Raw photos are disposed of locally after processing to save storage; only numeric results are persisted.

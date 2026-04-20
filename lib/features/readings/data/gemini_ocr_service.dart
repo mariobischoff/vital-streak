@@ -27,8 +27,8 @@ class GeminiOcrService {
       final img.Image? originalImage = img.decodeImage(rawBytes);
       if (originalImage == null) throw Exception('Failed to decode image');
 
-      // Resize to max 800px width/height keeping aspect ratio
-      final img.Image resizedImage = img.copyResize(originalImage, width: 800);
+      // Resize to max 1200px width/height keeping aspect ratio for better OCR
+      final img.Image resizedImage = img.copyResize(originalImage, width: 1200);
 
       // Compress to JPEG with 70% quality
       final Uint8List photoBytes = img.encodeJpg(resizedImage, quality: 70);
@@ -54,6 +54,12 @@ class GeminiOcrService {
 
       final text = response.text ?? '';
       debugPrint('Gemini response: "$text"');
+
+      if (text.isEmpty && response.candidates.isNotEmpty) {
+        debugPrint(
+          'Gemini Finish Reason: \${response.candidates.first.finishReason}',
+        );
+      }
 
       // Parse response: "SYS=128 DIA=87"
       final sysMatch = RegExp(r'SYS\s*=\s*(\d{2,3})').firstMatch(text);

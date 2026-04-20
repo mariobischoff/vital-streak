@@ -13,7 +13,7 @@ class BloodPressureReading {
       ..userId = json['user_id'] as String
       ..systolic = json['systolic'] as int
       ..diastolic = json['diastolic'] as int
-      ..measuredAt = DateTime.parse(json['measured_at'] as String);
+      ..measuredAt = DateTime.parse(json['measured_at'] as String).toLocal();
   }
 
   Map<String, dynamic> toJson() {
