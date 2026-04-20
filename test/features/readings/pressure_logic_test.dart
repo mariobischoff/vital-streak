@@ -85,4 +85,47 @@ void main() {
       expect(BloodPressureLogic.validate(120, 150), isFalse); // Dia too high
     });
   });
+
+  group('BloodPressureLogic - Habit & Trends', () {
+    test('calculateCurrentStreak should detect a 3-day streak including today', () {
+      final now = DateTime.now();
+      final dates = [
+        now,
+        now.subtract(const Duration(days: 1)),
+        now.subtract(const Duration(days: 2)),
+      ];
+      expect(BloodPressureLogic.calculateCurrentStreak(dates), 3);
+    });
+
+    test('calculateCurrentStreak should detect a streak ending yesterday', () {
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      final dates = [
+        yesterday,
+        yesterday.subtract(const Duration(days: 1)),
+      ];
+      expect(BloodPressureLogic.calculateCurrentStreak(dates), 2);
+    });
+
+    test('calculateCurrentStreak should return 0 if no reading today or yesterday', () {
+      final oldDate = DateTime.now().subtract(const Duration(days: 5));
+      final dates = [oldDate];
+      expect(BloodPressureLogic.calculateCurrentStreak(dates), 0);
+    });
+
+    test('calculateStabilityStatus should detect Stable trend', () {
+      final status = BloodPressureLogic.calculateStabilityStatus(
+        [120, 122], // Avg 121
+        [121, 119], // Avg 120 (diff < 5%)
+      );
+      expect(status, 'Stable');
+    });
+
+    test('calculateStabilityStatus should detect Improving trend', () {
+      final status = BloodPressureLogic.calculateStabilityStatus(
+        [115, 117], // Avg 116
+        [130, 134], // Avg 132 (improving)
+      );
+      expect(status, 'Improving');
+    });
+  });
 }

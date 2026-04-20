@@ -2,26 +2,43 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:heatmap_calendar_plus/heatmap_calendar_plus.dart';
+import 'package:screenshot/screenshot.dart';
 
-import '../domain/blood_pressure_reading.dart';
 import '../domain/blood_pressure_logic.dart';
+import '../domain/blood_pressure_reading.dart';
+import '../../reports/application/export_service.dart';
 import 'readings_controller.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  final ScreenshotController _screenshotController = ScreenshotController();
+  bool _isExporting = false;
+
+  @override
+  Widget build(BuildContext context) {
     final leiturasAsyncValue = ref.watch(filteredReadingsProvider);
-    final filtroAtual = ref.watch(filterPeriodControllerProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Blood Pressure Log'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        elevation: 0,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
         actions: [
           IconButton(
-            icon: const Icon(Icons.person),
+            icon: const Icon(Icons.share_outlined),
+            tooltip: 'Export PDF',
+            onPressed: () => _generateAndShareReport(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.person_outline),
             tooltip: 'My Profile',
             onPressed: () => context.push('/profile'),
           ),
@@ -32,90 +49,106 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildFilterBar(context, ref, filtroAtual),
-          Expanded(
-            child: leiturasAsyncValue.when(
-              data: (leituras) {
-                if (leituras.isEmpty) {
-                  return _buildEmptyState(context);
-                }
+      body: leiturasAsyncValue.when(
+        data: (leituras) {
+          if (leituras.isEmpty) {
+            return _buildEmptyState(context);
+          }
 
-                // Computar estatísticas
-                final double mediaSys =
-                    leituras.map((l) => l.systolic).reduce((a, b) => a + b) /
-                    leituras.length;
-                final double mediaDia =
-                    leituras.map((l) => l.diastolic).reduce((a, b) => a + b) /
-                    leituras.length;
-                final ultimaLeitura =
-                    leituras.first; // lista já está ordenada desc
+          // Computar Métricas (Streak & Stability)
+          final streak = BloodPressureLogic.calculateCurrentStreak(
+            leituras.map((l) => l.measuredAt).toList(),
+          );
 
-                String labelMedia = 'Overall Average';
-                if (filtroAtual == FilterPeriod.sevenDays) {
-                  labelMedia = 'Average (7 days)';
-                } else if (filtroAtual == FilterPeriod.thirtyDays) {
-                  labelMedia = 'Average (30 days)';
-                }
+          // Estabilidade: Comparamos os últimos 5 registros com os 5 anteriores (se existirem)
+          String stability = 'Calculating...';
+          if (leituras.length >= 4) {
+            final mid = leituras.length ~/ 2;
+            stability = BloodPressureLogic.calculateStabilityStatus(
+              leituras.take(mid).map((l) => l.systolic).toList(),
+              leituras.skip(mid).map((l) => l.systolic).toList(),
+            );
+          }
 
-                return Column(
-                  children: [
-                    _buildStatsHeader(
-                      context,
-                      ultimaLeitura,
-                      mediaSys,
-                      mediaDia,
-                      labelMedia,
-                    ),
-                    _buildChartSection(context, leituras),
-                    const Divider(height: 1),
-                    Expanded(child: _buildHistoryList(context, ref, leituras)),
-                  ],
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stack) => Center(
-                child: Text(
-                  'Error loading data:\n$error',
-                  textAlign: TextAlign.center,
+          final mSys =
+              leituras.map((l) => l.systolic).reduce((a, b) => a + b) /
+              leituras.length;
+          final mDia =
+              leituras.map((l) => l.diastolic).reduce((a, b) => a + b) /
+              leituras.length;
+
+          return CustomScrollView(
+            slivers: [
+              // 1. Streak & Status Header
+              SliverToBoxAdapter(
+                child: _buildStreakHeader(
+                  context,
+                  streak,
+                  stability,
+                  mSys,
+                  mDia,
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          context.push('/scanner');
-        },
-        icon: const Icon(Icons.camera_alt),
-        label: const Text('Scan Display'),
-      ),
-    );
-  }
 
-  Widget _buildFilterBar(
-    BuildContext context,
-    WidgetRef ref,
-    FilterPeriod filtroAtual,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: SegmentedButton<FilterPeriod>(
-        segments: const [
-          ButtonSegment(value: FilterPeriod.sevenDays, label: Text('7 Days')),
-          ButtonSegment(value: FilterPeriod.thirtyDays, label: Text('30 Days')),
-          ButtonSegment(value: FilterPeriod.all, label: Text('All')),
-        ],
-        selected: {filtroAtual},
-        onSelectionChanged: (Set<FilterPeriod> newSelection) {
-          ref
-              .read(filterPeriodControllerProvider.notifier)
-              .changeFilter(newSelection.first);
+              // 2. Consistency Grid (30 Days)
+              SliverToBoxAdapter(
+                child: _buildConsistencySection(context, leituras),
+              ),
+
+              // 3. Trends Zoned Chart
+              // 3. Trends Range Bar Chart
+              SliverToBoxAdapter(
+                child: Screenshot(
+                  controller: _screenshotController,
+                  child: _buildRangeBarChart(context, leituras),
+                ),
+              ),
+
+              // 4. History Header
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, 24, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'RECENT ACTIVITY',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                      Divider(height: 16),
+                    ],
+                  ),
+                ),
+              ),
+
+              // 5. History List
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 100),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    return _buildHistoryItem(context, ref, leituras[index]);
+                  }, childCount: leituras.length),
+                ),
+              ),
+            ],
+          );
         },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => Center(child: Text('Error: $error')),
       ),
+      // Overlay de carregamento
+      floatingActionButton: _isExporting 
+        ? null 
+        : FloatingActionButton.extended(
+            onPressed: () => context.push('/scanner'),
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Scan Now'),
+          ),
     );
   }
 
@@ -124,268 +157,377 @@ class DashboardScreen extends ConsumerWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.monitor_heart_outlined, size: 80, color: Colors.grey[400]),
+          Icon(Icons.monitor_heart_outlined, size: 80, color: Colors.grey[300]),
           const SizedBox(height: 16),
-          Text(
-            'No measurements recorded yet',
-            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+          const Text(
+            'No records found.',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Use the camera to scan your monitor',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-          ),
+          const Text('Take your first reading to start your streak!'),
         ],
       ),
     );
   }
 
-  Widget _buildStatsHeader(
+  Widget _buildStreakHeader(
     BuildContext context,
-    BloodPressureReading ultima,
+    int streak,
+    String stability,
     double mSys,
     double mDia,
-    String labelMedia,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.secondary,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            offset: const Offset(0, 4),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
             blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
         children: [
-          Expanded(
-            child: _StatCard(
-              label: 'Latest',
-              value: '${ultima.systolic}/${ultima.diastolic}',
-              color: BloodPressureLogic.classify(
-                ultima.systolic,
-                ultima.diastolic,
-              ).color,
-              icon: Icons.history,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'YOUR STREAK',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.local_fire_department,
+                    color: Colors.orangeAccent,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$streak Days',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Trend: $stability',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _StatCard(
-              label: labelMedia,
-              value: '${mSys.toInt()}/${mDia.toInt()}',
-              color: Theme.of(context).colorScheme.secondary,
-              icon: Icons.analytics_outlined,
-            ),
+          const Spacer(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Text(
+                'AVG',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              Text(
+                '${mSys.toInt()}/${mDia.toInt()}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w300,
+                ),
+              ),
+              const Text(
+                'mmHg',
+                style: TextStyle(color: Colors.white60, fontSize: 10),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildChartSection(
+  Widget _buildConsistencySection(
     BuildContext context,
     List<BloodPressureReading> leituras,
   ) {
-    // Para o gráfico, é melhor ordenar cronologicamente (ascendente)
-    final leiturasCronologicas = leituras.reversed.toList();
+    // Preparar dados para o HeatMap
+    final Map<DateTime, int> dataset = {};
+    for (var reading in leituras) {
+      final date = DateTime(
+        reading.measuredAt.year,
+        reading.measuredAt.month,
+        reading.measuredAt.day,
+      );
+      dataset[date] = (dataset[date] ?? 0) + 1;
+    }
 
-    return Container(
-      height: 220,
-      padding: const EdgeInsets.only(right: 24, left: 16, top: 24, bottom: 12),
-      child: LineChart(
-        LineChartData(
-          minY: 40,
-          maxY: 200,
-          lineBarsData: [
-            LineChartBarData(
-              spots: leiturasCronologicas.asMap().entries.map((e) {
-                return FlSpot(e.key.toDouble(), e.value.systolic.toDouble());
-              }).toList(),
-              isCurved: true,
-              color: Colors.redAccent,
-              barWidth: 3,
-              isStrokeCapRound: true,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, percent, barData, index) =>
-                    FlDotCirclePainter(
-                      radius: 3,
-                      color: Colors.redAccent,
-                      strokeWidth: 1,
-                      strokeColor: Colors.white,
-                    ),
-              ),
-              belowBarData: BarAreaData(
-                show: true,
-                color: Colors.redAccent.withValues(alpha: 0.1),
-              ),
-            ),
-            LineChartBarData(
-              spots: leiturasCronologicas.asMap().entries.map((e) {
-                return FlSpot(e.key.toDouble(), e.value.diastolic.toDouble());
-              }).toList(),
-              isCurved: true,
-              color: Colors.blueAccent,
-              barWidth: 3,
-              isStrokeCapRound: true,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, percent, barData, index) =>
-                    FlDotCirclePainter(
-                      radius: 3,
-                      color: Colors.blueAccent,
-                      strokeWidth: 1,
-                      strokeColor: Colors.white,
-                    ),
-              ),
-              belowBarData: BarAreaData(
-                show: true,
-                color: Colors.blueAccent.withValues(alpha: 0.1),
-              ),
-            ),
-          ],
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            bottomTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ), // Ocultar eixo X por ora
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 40,
-                getTitlesWidget: (value, meta) {
-                  return Text(
-                    value.toInt().toString(),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  );
-                },
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Text(
+            'LAST 30 DAYS CONSTANCY',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
             ),
           ),
-          borderData: FlBorderData(
-            show: true,
-            border: const Border(
-              bottom: BorderSide(color: Colors.grey, width: 1),
-              left: BorderSide(color: Colors.grey, width: 1),
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Cálculo responsivo: tentamos preencher a largura de forma equilibrada.
+            // Consideramos 6-8 semanas para os últimos 30 dias + labels laterais.
+            final availableWidth = constraints.maxWidth - 80; 
+            final cellSize = (availableWidth / 7.5).clamp(18.0, 30.0);
+            final spacing = cellSize / 4;
+
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Center(
+                child: HeatMap(
+                  datasets: dataset,
+                  colorMode: ColorMode.opacity,
+                  showText: true,
+                  scrollable: false,
+                  size: cellSize,
+                  blockSpacing: spacing,
+                  showColorTip: false,
+                  startDate: DateTime.now().subtract(const Duration(days: 30)),
+                  endDate: DateTime.now(),
+                  colorsets: {1: Theme.of(context).colorScheme.primary},
+                  onClick: (value) {},
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRangeBarChart(
+    BuildContext context,
+    List<BloodPressureReading> leituras,
+  ) {
+    if (leituras.isEmpty) return const SizedBox.shrink();
+
+    // Pegamos as últimas 7 ou 10 leituras para não poluir muito a horizontal
+    final recentLeituras = leituras.take(10).toList().reversed.toList();
+
+    return Container(
+      height: 240,
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: BarChart(
+        BarChartData(
+          minY: 40,
+          maxY: 180,
+          barTouchData: BarTouchData(
+            touchTooltipData: BarTouchTooltipData(
+              getTooltipColor: (_) => Theme.of(context).colorScheme.primaryContainer,
+              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                final reading = recentLeituras[group.x.toInt()];
+                return BarTooltipItem(
+                  '${reading.systolic}/${reading.diastolic}\n',
+                  TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: _formatDate(reading.measuredAt),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
             horizontalInterval: 40,
-            getDrawingHorizontalLine: (value) => const FlLine(
-              color: Colors.black12,
+            getDrawingHorizontalLine: (v) => FlLine(
+              color: Colors.grey.withValues(alpha: 0.1),
               strokeWidth: 1,
-              dashArray: [5, 5],
             ),
           ),
+          extraLinesData: ExtraLinesData(
+            horizontalLines: [
+              HorizontalLine(
+                y: 110, // Centro da zona normal (80-140 aprox combinando sys/dia)
+                color: Colors.green.withValues(alpha: 0.05),
+                strokeWidth: 60,
+                label: HorizontalLineLabel(
+                  show: true,
+                  alignment: Alignment.topRight,
+                  labelResolver: (line) => 'NORMAL ZONE',
+                  style: const TextStyle(fontSize: 9, color: Colors.green),
+                ),
+              ),
+            ],
+          ),
+          titlesData: FlTitlesData(
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  if (value.toInt() >= recentLeituras.length) return const SizedBox.shrink();
+                  final date = recentLeituras[value.toInt()].measuredAt;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      '${date.day}/${date.month}',
+                      style: const TextStyle(fontSize: 9, color: Colors.grey),
+                    ),
+                  );
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 40, // Aumentado de 30 para 40
+                interval: 40,
+                getTitlesWidget: (value, meta) {
+                  return Text(
+                    value.toInt().toString(),
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  );
+                },
+              ),
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: recentLeituras.asMap().entries.map((e) {
+            final idx = e.key;
+            final leitura = e.value;
+            final cat = BloodPressureLogic.classify(leitura.systolic, leitura.diastolic);
+
+            return BarChartGroupData(
+              x: idx,
+              barRods: [
+                BarChartRodData(
+                  fromY: leitura.diastolic.toDouble(),
+                  toY: leitura.systolic.toDouble(),
+                  color: cat.color,
+                  width: 12,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ],
+            );
+          }).toList(),
         ),
       ),
     );
   }
 
-  Widget _buildHistoryList(
+  Widget _buildHistoryItem(
     BuildContext context,
     WidgetRef ref,
-    List<BloodPressureReading> leituras,
+    BloodPressureReading leitura,
   ) {
-    return ListView.builder(
-      itemCount: leituras.length,
-      itemBuilder: (context, index) {
-        final leitura = leituras[index];
+    final cat = BloodPressureLogic.classify(
+      leitura.systolic,
+      leitura.diastolic,
+    );
 
-        return Dismissible(
-          key: Key(leitura.id.toString()),
-          background: Container(
-            color: Colors.red,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            child: const Icon(Icons.delete, color: Colors.white),
-          ),
-          direction: DismissDirection.endToStart,
-          confirmDismiss: (direction) async {
-            return await showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text("Confirm"),
-                  content: const Text(
-                    "Do you really want to delete this reading?",
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text("Cancel"),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(true),
-                      child: const Text(
-                        "Delete",
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-          onDismissed: (direction) {
-            if (leitura.id != null) {
-              ref
-                  .read(readingsControllerProvider.notifier)
-                  .deleteReading(leitura.id!);
-            }
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Reading deleted')));
-          },
-          child: Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: ListTile(
-              leading: Container(
-                width: 12,
-                height: double.infinity,
-                decoration: BoxDecoration(
-                  color: BloodPressureLogic.classify(
-                    leitura.systolic,
-                    leitura.diastolic,
-                  ).color,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              title: Text(
-                '${leitura.systolic} / ${leitura.diastolic} mmHg',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              subtitle: Text(_formatDate(leitura.measuredAt)),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.monitor_heart,
-                    color: BloodPressureLogic.classify(
-                      leitura.systolic,
-                      leitura.diastolic,
-                    ).color,
-                  ),
-                ],
+    return Dismissible(
+      key: Key(leitura.id ?? leitura.measuredAt.toIso8601String()),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Colors.redAccent,
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      onDismissed: (_) {
+        if (leitura.id != null) {
+          ref
+              .read(readingsControllerProvider.notifier)
+              .deleteReading(leitura.id!);
+        }
+      },
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        leading: CircleAvatar(
+          backgroundColor: cat.color.withValues(alpha: 0.1),
+          child: Icon(Icons.favorite, color: cat.color, size: 20),
+        ),
+        title: Text(
+          '${leitura.systolic}/${leitura.diastolic}',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        subtitle: Text(_formatDate(leitura.measuredAt)),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              cat.label,
+              style: TextStyle(
+                color: cat.color,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
               ),
             ),
-          ),
-        );
-      },
+            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
+          ],
+        ),
+      ),
     );
   }
 
@@ -395,64 +537,53 @@ class DashboardScreen extends ConsumerWidget {
     final m = localDate.month.toString().padLeft(2, '0');
     final h = localDate.hour.toString().padLeft(2, '0');
     final min = localDate.minute.toString().padLeft(2, '0');
-    return '$d/$m/${localDate.year} at $h:$min';
+    return '$d/$m at $h:$min';
   }
-}
 
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
+  Future<void> _generateAndShareReport() async {
+    final leituras = ref.read(filteredReadingsProvider).value;
+    if (leituras == null || leituras.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No entries to export')),
+        );
+      }
+      return;
+    }
 
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.icon,
-  });
+    setState(() => _isExporting = true);
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: color.withValues(alpha: 0.8),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const Text(
-            'mmHg',
-            style: TextStyle(fontSize: 10, color: Colors.black38),
-          ),
-        ],
-      ),
-    );
+    try {
+      // 1. Capturar o gráfico
+      final chartBytes = await _screenshotController.capture(
+        pixelRatio: 2.0, // Alta qualidade
+      );
+
+      // 2. Calcular médias para o relatório
+      final mSys =
+          leituras.map((l) => l.systolic).reduce((a, b) => a + b) /
+          leituras.length;
+      final mDia =
+          leituras.map((l) => l.diastolic).reduce((a, b) => a + b) /
+          leituras.length;
+
+      // 3. Gerar e compartilhar
+      await ExportService.generateAndShare(
+        readings: leituras,
+        chartImage: chartBytes,
+        avgSys: mSys,
+        avgDia: mDia,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating report: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
   }
 }

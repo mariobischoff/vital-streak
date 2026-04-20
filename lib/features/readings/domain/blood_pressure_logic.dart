@@ -51,4 +51,58 @@ class BloodPressureLogic {
     if (diastolic < 40 || diastolic > 140) return false;
     return true;
   }
+
+  /// Calculates the number of consecutive days with at least one reading.
+  static int calculateCurrentStreak(List<DateTime> dates) {
+    if (dates.isEmpty) return 0;
+
+    // Normalize and remove duplicates (only care about the date)
+    final uniqueDates =
+        dates
+            .map((d) => DateTime(d.year, d.month, d.day))
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a)); // Newest first
+
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedYesterday = normalizedToday.subtract(const Duration(days: 1));
+
+    // If the latest reading is not today or yesterday, streak is broken
+    if (uniqueDates.first.isBefore(normalizedYesterday)) {
+      return 0;
+    }
+
+    int streak = 0;
+    DateTime currentCheck = uniqueDates.first;
+
+    for (final date in uniqueDates) {
+      if (date == currentCheck) {
+        streak++;
+        currentCheck = currentCheck.subtract(const Duration(days: 1));
+      } else {
+        break;
+      }
+    }
+
+    return streak;
+  }
+
+  /// Categorizes the stability of the pressure based on recent volatility.
+  static String calculateStabilityStatus(
+    List<int> currentSys,
+    List<int> previousSys,
+  ) {
+    if (currentSys.isEmpty || previousSys.isEmpty) return 'Initial Phase';
+
+    final avgCurrent = currentSys.reduce((a, b) => a + b) / currentSys.length;
+    final avgPrevious = previousSys.reduce((a, b) => a + b) / previousSys.length;
+
+    final diff = (avgCurrent - avgPrevious).abs();
+    final percentChange = diff / avgPrevious;
+
+    if (percentChange < 0.05) return 'Stable';
+    if (avgCurrent < avgPrevious) return 'Improving';
+    return 'Varying';
+  }
 }
