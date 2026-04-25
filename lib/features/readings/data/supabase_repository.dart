@@ -18,15 +18,25 @@ class SupabaseRepository {
     await _client.from('readings').insert(reading.toJson());
   }
 
-  Future<List<BloodPressureReading>> getAllReadings() async {
+  Future<List<BloodPressureReading>> getAllReadings({int? limit, int? offset}) async {
     final user = _client.auth.currentUser;
     if (user == null) return [];
 
-    final response = await _client
+    var query = _client
         .from('readings')
         .select()
         .eq('user_id', user.id)
         .order('measured_at', ascending: false);
+
+    if (limit != null) {
+      query = query.limit(limit);
+    }
+    if (offset != null) {
+      // Supabase range is inclusive
+      query = query.range(offset, offset + (limit ?? 10) - 1);
+    }
+
+    final response = await query;
 
     return response.map((json) => BloodPressureReading.fromJson(json)).toList();
   }

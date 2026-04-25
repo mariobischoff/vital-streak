@@ -7,31 +7,67 @@ part 'readings_controller.g.dart';
 
 @riverpod
 class ReadingsController extends _$ReadingsController {
+  final int _pageSize = 20;
+  bool _hasMore = true;
+
   @override
   FutureOr<List<BloodPressureReading>> build() async {
-    return _fetchReadings();
+    _hasMore = true;
+    return _fetchReadings(offset: 0, limit: 30); // Initial fetch 30 for chart
   }
 
-  Future<List<BloodPressureReading>> _fetchReadings() async {
+  Future<List<BloodPressureReading>> _fetchReadings({required int offset, required int limit}) async {
     final repository = ref.read(supabaseRepositoryProvider);
-    return repository.getAllReadings();
+    final readings = await repository.getAllReadings(limit: limit, offset: offset);
+    if (readings.length < limit) {
+      _hasMore = false;
+    }
+    return readings;
   }
+
+  Future<void> loadMore() async {
+    if (state.isLoading || !_hasMore) return;
+
+    final currentReadings = state.value ?? [];
+
+    
+    // We don't want to set the whole state to loading because that would show a 
+    // full-screen spinner. We want to append.
+    // However, AsyncNotifier doesn't have a built-in "loading more" state easily.
+    // We'll just fetch and update.
+    
+    try {
+      final nextReadings = await _fetchReadings(
+        offset: currentReadings.length, 
+        limit: _pageSize
+      );
+      state = AsyncData([...currentReadings, ...nextReadings]);
+    } catch (e, st) {
+      // In a real app, we might want a separate error state for "load more"
+      state = AsyncError(e, st);
+    }
+  }
+
+  bool get hasMore => _hasMore;
 
   Future<void> addReading(BloodPressureReading reading) async {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       final repository = ref.read(supabaseRepositoryProvider);
       await repository.saveReading(reading);
-      return _fetchReadings();
+      _hasMore = true;
+      return _fetchReadings(offset: 0, limit: 30);
     });
   }
 
   Future<void> deleteReading(String id) async {
+    // We keep it simple: refetch everything if deleted to ensure consistency
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       final repository = ref.read(supabaseRepositoryProvider);
       await repository.deleteReading(id);
-      return _fetchReadings();
+      _hasMore = true;
+      return _fetchReadings(offset: 0, limit: 30);
     });
   }
 }

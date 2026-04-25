@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
 import '../domain/blood_pressure_reading.dart';
 import 'readings_controller.dart';
+import '../../../core/design_system/app_colors.dart';
+import '../../../core/design_system/app_typography.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_card.dart';
+import 'package:figma_squircle/figma_squircle.dart';
+import 'package:pressao_arterial_historico/l10n/app_localizations.dart';
 
 class ManualEntryScreen extends ConsumerStatefulWidget {
   const ManualEntryScreen({super.key});
@@ -24,8 +29,8 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
 
     if (sys == null || dia == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter valid values for SYS and DIA.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.manualEntryErrorInvalid),
         ),
       );
       return;
@@ -33,10 +38,8 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
 
     if (sys <= dia) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Systolic pressure (SYS) must be greater than Diastolic (DIA).',
-          ),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.manualEntryErrorSysDia),
         ),
       );
       return;
@@ -90,116 +93,172 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Manual Entry'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(
+          AppLocalizations.of(context)!.manualEntryTitle,
+          style: AppTypography.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: AppColors.textPrimary),
+          onPressed: () => context.pop(),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.edit_note, size: 80, color: Colors.blueGrey),
-            const SizedBox(height: 16),
-            const Text(
-              'Record a past measurement',
+            // Hero Icon Area
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.edit_note_rounded,
+                  size: 48,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              AppLocalizations.of(context)!.manualEntryRecord,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, color: Colors.black87),
+              style: AppTypography.textTheme.displaySmall?.copyWith(fontSize: 22),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              AppLocalizations.of(context)!.manualEntryFillDetails,
+              textAlign: TextAlign.center,
+              style: AppTypography.textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 40),
+
+            // Date & Time Picker
+            AppCard(
+              padding: EdgeInsets.zero,
+              cornerRadius: 16,
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.calendar_today_outlined, color: AppColors.primary, size: 20),
+                ),
+                title: Text(
+                  AppLocalizations.of(context)!.manualEntryDate,
+                  style: AppTypography.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                ),
+                subtitle: Text(
+                  '${_selectedDate.day.toString().padLeft(2, "0")}/${_selectedDate.month.toString().padLeft(2, "0")}/${_selectedDate.year} at ${_selectedDate.hour.toString().padLeft(2, "0")}:${_selectedDate.minute.toString().padLeft(2, "0")}',
+                  style: AppTypography.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+                onTap: _pickDateTime,
+              ),
             ),
             const SizedBox(height: 32),
 
-            // DateTime Picker Picker
-            ListTile(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              leading: const Icon(Icons.calendar_today, color: Colors.blueGrey),
-              title: const Text('Date and Time of Measurement'),
-              subtitle: Text(
-                '${_selectedDate.day.toString().padLeft(2, "0")}/${_selectedDate.month.toString().padLeft(2, "0")}/${_selectedDate.year} at ${_selectedDate.hour.toString().padLeft(2, "0")}:${_selectedDate.minute.toString().padLeft(2, "0")}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              onTap: _pickDateTime,
-            ),
-            const SizedBox(height: 24),
-
-            // Form Fields
+            // BP Input Section
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: _buildBPInput(
                     controller: _sysController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Systolic (SYS)',
-                      labelStyle: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      filled: true,
-                      fillColor: Colors.red.withValues(alpha: 0.1),
-                    ),
+                    label: AppLocalizations.of(context)!.manualEntrySys,
+                    unit: 'mmHg',
+                    color: AppColors.primary,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 20),
                 Expanded(
-                  child: TextField(
+                  child: _buildBPInput(
                     controller: _diaController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Diastolic (DIA)',
-                      labelStyle: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      filled: true,
-                      fillColor: Colors.blue.withValues(alpha: 0.1),
-                    ),
+                    label: AppLocalizations.of(context)!.manualEntryDia,
+                    unit: 'mmHg',
+                    color: const Color(0xFF3498DB), // Subtle Blue for DIA
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 40),
-            ElevatedButton.icon(
+            const SizedBox(height: 48),
+            
+            AppButton(
+              text: AppLocalizations.of(context)!.manualEntrySave,
+              leading: const Icon(Icons.check_circle_outline),
               onPressed: _saveReading,
-              icon: const Icon(Icons.save),
-              label: const Text('Save Reading', style: TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueGrey,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
             ),
+            const SizedBox(height: 24),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBPInput({
+    required TextEditingController controller,
+    required String label,
+    required String unit,
+    required Color color,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            label,
+            style: AppTypography.textTheme.labelMedium?.copyWith(
+              color: AppColors.textSecondary,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Container(
+          decoration: ShapeDecoration(
+            color: Colors.white,
+            shape: SmoothRectangleBorder(
+              borderRadius: SmoothBorderRadius(
+                cornerRadius: 16,
+                cornerSmoothing: 0.6,
+              ),
+              side: BorderSide(color: color.withValues(alpha: 0.2), width: 1.5),
+            ),
+          ),
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            textAlign: TextAlign.center,
+            style: AppTypography.textTheme.displaySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.bold,
+            ),
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(vertical: 20),
+              border: InputBorder.none,
+              hintText: '---',
+              hintStyle: TextStyle(color: color.withValues(alpha: 0.2)),
+              suffixText: unit,
+              suffixStyle: AppTypography.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

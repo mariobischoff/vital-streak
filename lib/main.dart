@@ -13,6 +13,8 @@ import 'features/auth/presentation/profile_screen.dart';
 import 'features/readings/presentation/camera_scanner_screen.dart';
 import 'features/readings/presentation/dashboard_screen.dart';
 import 'features/readings/presentation/manual_entry_screen.dart';
+import 'core/design_system/app_theme.dart';
+import 'package:pressao_arterial_historico/l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -92,12 +94,11 @@ class MyApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'Blood Pressure Tracker',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
-        useMaterial3: true,
-      ),
+      title: 'Vital Streak',
+      theme: AppTheme.light,
       routerConfig: router,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
     );
   }
 }

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pressao_arterial_historico/l10n/app_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/design_system/app_colors.dart';
+import '../../../core/design_system/app_typography.dart';
+import '../../../core/widgets/app_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -10,10 +14,13 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   Future<void> _signIn() async {
     setState(() => _isLoading = true);
@@ -46,60 +53,155 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.favorite, size: 80, color: Colors.red),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 24),
-              if (_isLoading)
-                const Center(child: CircularProgressIndicator())
-              else
-                ElevatedButton(
-                  onPressed: _signIn,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    textStyle: const TextStyle(fontSize: 18),
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                const SizedBox(height: 40),
+                // Logo & Branding
+                ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: Column(
+                    children: [
+                      Image.asset('assets/images/logo.png', height: 120),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Vital Streak',
+                        style: AppTypography.textTheme.displayMedium?.copyWith(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Text('Login'),
                 ),
-              TextButton(
-                onPressed: () => context.push('/signup'),
-                child: const Text('Don\'t have an account? Sign up'),
-              ),
-            ],
+                const SizedBox(height: 60),
+
+                // Welcome Text
+                Text(
+                  AppLocalizations.of(context)!.welcomeTitle,
+                  style: AppTypography.textTheme.displaySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  AppLocalizations.of(context)!.welcomeSubtitle,
+                  style: AppTypography.textTheme.bodyLarge?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 60),
+
+                // Form Fields
+                _buildTextField(
+                  controller: _emailController,
+                  label: AppLocalizations.of(context)!.emailLabel,
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: _passwordController,
+                  label: AppLocalizations.of(context)!.passwordLabel,
+                  icon: Icons.lock_outline,
+                  obscureText: true,
+                ),
+                const SizedBox(height: 32),
+
+                // Login Action
+                AppButton(
+                  text: AppLocalizations.of(context)!.loginButton,
+                  isLoading: _isLoading,
+                  onPressed: _signIn,
+                ),
+                const SizedBox(height: 24),
+
+                // Signup Link
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      AppLocalizations.of(context)!.noAccountText,
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                    GestureDetector(
+                      onTap: () => context.push('/signup'),
+                      child: Text(
+                        AppLocalizations.of(context)!.signUpText,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 40),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.textSecondary.withValues(alpha: 0.1),
+        ),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        style: AppTypography.textTheme.bodyLarge,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: AppColors.textSecondary, size: 20),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
+          labelStyle: TextStyle(color: AppColors.textSecondary),
         ),
       ),
     );

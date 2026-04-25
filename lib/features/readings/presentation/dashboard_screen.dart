@@ -9,6 +9,11 @@ import '../domain/blood_pressure_logic.dart';
 import '../domain/blood_pressure_reading.dart';
 import '../../reports/application/export_service.dart';
 import 'readings_controller.dart';
+import '../../../core/design_system/app_colors.dart';
+import '../../../core/design_system/app_typography.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_button.dart';
+import 'package:pressao_arterial_historico/l10n/app_localizations.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -19,7 +24,27 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final ScreenshotController _screenshotController = ScreenshotController();
+  final ScrollController _scrollController = ScrollController();
   bool _isExporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    // Detect when user is near bottom
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      ref.read(readingsControllerProvider.notifier).loadMore();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,25 +52,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Blood Pressure Log'),
+        title: Row(
+          children: [
+            Image.asset('assets/images/logo.png', height: 32),
+            const SizedBox(width: 8),
+            Text(
+              'Vital Streak',
+              style: AppTypography.textTheme.displaySmall?.copyWith(fontSize: 20),
+            ),
+          ],
+        ),
         elevation: 0,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        foregroundColor: Theme.of(context).colorScheme.onSurface,
+        backgroundColor: AppColors.background,
         actions: [
           IconButton(
-            icon: const Icon(Icons.share_outlined),
+            icon: const Icon(Icons.share_outlined, color: AppColors.textPrimary),
             tooltip: 'Export PDF',
             onPressed: () => _generateAndShareReport(),
           ),
           IconButton(
-            icon: const Icon(Icons.person_outline),
+            icon: const Icon(Icons.person_outline, color: AppColors.textPrimary),
             tooltip: 'My Profile',
             onPressed: () => context.push('/profile'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_box_outlined),
-            tooltip: 'Manual Entry',
-            onPressed: () => context.push('/manual'),
           ),
         ],
       ),
@@ -61,7 +89,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           );
 
           // Estabilidade: Comparamos os últimos 5 registros com os 5 anteriores (se existirem)
-          String stability = 'Calculating...';
+          String stability = AppLocalizations.of(context)!.dashboardCalculating;
           if (leituras.length >= 4) {
             final mid = leituras.length ~/ 2;
             stability = BloodPressureLogic.calculateStabilityStatus(
@@ -78,6 +106,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               leituras.length;
 
           return CustomScrollView(
+            controller: _scrollController,
             slivers: [
               // 1. Streak & Status Header
               SliverToBoxAdapter(
@@ -100,55 +129,69 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               SliverToBoxAdapter(
                 child: Screenshot(
                   controller: _screenshotController,
-                  child: _buildRangeBarChart(context, leituras),
+                  child: _buildTrendChart(context, leituras),
                 ),
               ),
 
               // 4. History Header
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 24, 20, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'RECENT ACTIVITY',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                          letterSpacing: 1.1,
-                        ),
-                      ),
-                      Divider(height: 16),
-                    ],
+                  padding: const EdgeInsets.fromLTRB(20, 32, 20, 8),
+                  child: Text(
+                    AppLocalizations.of(context)!.dashboardRecentActivity,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textSecondary,
+                      letterSpacing: 1.2,
+                    ),
                   ),
                 ),
               ),
 
               // 5. History List
               SliverPadding(
-                padding: const EdgeInsets.only(bottom: 100),
+                padding: const EdgeInsets.only(bottom: 20),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate((context, index) {
                     return _buildHistoryItem(context, ref, leituras[index]);
                   }, childCount: leituras.length),
                 ),
               ),
+
+              // 6. Loading More Indicator
+              if (ref.read(readingsControllerProvider.notifier).hasMore)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                ),
+
+              const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
             ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => Center(child: Text('Error: $error')),
       ),
-      // Overlay de carregamento
-      floatingActionButton: _isExporting 
-        ? null 
-        : FloatingActionButton.extended(
-            onPressed: () => context.push('/scanner'),
-            icon: const Icon(Icons.camera_alt),
-            label: const Text('Scan Now'),
-          ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: _isExporting
+          ? null
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: AppButton(
+                text: AppLocalizations.of(context)!.dashboardScanNow,
+                leading: const Icon(Icons.camera_alt_outlined),
+                onPressed: () => context.push('/scanner'),
+              ),
+            ),
     );
   }
 
@@ -157,13 +200,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.monitor_heart_outlined, size: 80, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          const Text(
-            'No records found.',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Icon(Icons.monitor_heart_outlined, size: 80, color: AppColors.primary.withValues(alpha: 0.1)),
+          const SizedBox(height: 24),
+          Text(
+            AppLocalizations.of(context)!.dashboardEmptyTitle,
+            style: AppTypography.textTheme.displaySmall,
           ),
-          const Text('Take your first reading to start your streak!'),
+          const SizedBox(height: 8),
+          Text(
+            AppLocalizations.of(context)!.dashboardEmptySubtitle,
+            style: AppTypography.textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+          ),
         ],
       ),
     );
@@ -176,96 +223,117 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     double mSys,
     double mDia,
   ) {
-    return Container(
-      margin: const EdgeInsets.all(16),
+    return Padding(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.secondary,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
+      child: Column(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'YOUR STREAK',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
+          // Primary Card: Challenge/Streak
+          AppCard(
+            color: null, // We'll use decoration for gradient
+            padding: EdgeInsets.zero,
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppColors.primary, Color(0xFFFF8E8E)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
               ),
-              const SizedBox(height: 4),
-              Row(
+              child: Row(
                 children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLocalizations.of(context)!.dashboardChallengeStarted,
+                          style: AppTypography.textTheme.labelLarge?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$streak ${AppLocalizations.of(context)!.dashboardDays}',
+                          style: AppTypography.textTheme.displayLarge?.copyWith(
+                            color: Colors.white,
+                            fontSize: 36,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const Icon(
                     Icons.local_fire_department,
                     color: Colors.orangeAccent,
-                    size: 28,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$streak Days',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    size: 48,
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  'Trend: $stability',
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                ),
-              ),
-            ],
+            ),
           ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          const SizedBox(height: 16),
+          // Average Card
+          Row(
             children: [
-              const Text(
-                'AVG',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-              Text(
-                '${mSys.toInt()}/${mDia.toInt()}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w300,
+              Expanded(
+                child: AppCard(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppLocalizations.of(context)!.dashboardAvgBP,
+                        style: AppTypography.textTheme.labelLarge?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${mSys.toInt()}/${mDia.toInt()}',
+                              style: AppTypography.textTheme.displaySmall?.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            TextSpan(
+                              text: ' mmHg',
+                              style: AppTypography.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const Text(
-                'mmHg',
-                style: TextStyle(color: Colors.white60, fontSize: 10),
+              const SizedBox(width: 16),
+              Expanded(
+                child: AppCard(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppLocalizations.of(context)!.dashboardStatus,
+                        style: AppTypography.textTheme.labelLarge?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        stability.toUpperCase(),
+                        style: AppTypography.textTheme.titleLarge?.copyWith(
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -292,46 +360,40 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Text(
-            'LAST 30 DAYS CONSTANCY',
-            style: TextStyle(
+            AppLocalizations.of(context)!.dashboardConstancy,
+            style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
-              color: Colors.grey,
+              color: AppColors.textSecondary,
+              letterSpacing: 1.2,
             ),
           ),
         ),
         LayoutBuilder(
           builder: (context, constraints) {
-            // Cálculo responsivo: tentamos preencher a largura de forma equilibrada.
-            // Consideramos 6-8 semanas para os últimos 30 dias + labels laterais.
-            final availableWidth = constraints.maxWidth - 80; 
+            final availableWidth = constraints.maxWidth - 80;
             final cellSize = (availableWidth / 7.5).clamp(18.0, 30.0);
             final spacing = cellSize / 4;
 
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
+            return AppCard(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(16),
-              ),
+              margin: const EdgeInsets.symmetric(horizontal: 16),
               child: Center(
                 child: HeatMap(
                   datasets: dataset,
                   colorMode: ColorMode.opacity,
-                  showText: true,
+                  showText: false,
                   scrollable: false,
                   size: cellSize,
                   blockSpacing: spacing,
                   showColorTip: false,
                   startDate: DateTime.now().subtract(const Duration(days: 30)),
                   endDate: DateTime.now(),
-                  colorsets: {1: Theme.of(context).colorScheme.primary},
+                  colorsets: {1: AppColors.primary},
+                  borderRadius: 8, // Close to squircular for small cells
                   onClick: (value) {},
                 ),
               ),
@@ -342,136 +404,90 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildRangeBarChart(
+  Widget _buildTrendChart(
     BuildContext context,
     List<BloodPressureReading> leituras,
   ) {
     if (leituras.isEmpty) return const SizedBox.shrink();
 
-    // Pegamos as últimas 7 ou 10 leituras para não poluir muito a horizontal
-    final recentLeituras = leituras.take(10).toList().reversed.toList();
+    final recentLeituras = leituras.take(30).toList().reversed.toList();
 
-    return Container(
-      height: 240,
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: BarChart(
-        BarChartData(
-          minY: 40,
-          maxY: 180,
-          barTouchData: BarTouchData(
-            touchTooltipData: BarTouchTooltipData(
-              getTooltipColor: (_) => Theme.of(context).colorScheme.primaryContainer,
-              getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                final reading = recentLeituras[group.x.toInt()];
-                return BarTooltipItem(
-                  '${reading.systolic}/${reading.diastolic}\n',
-                  TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: _formatDate(reading.measuredAt),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.normal,
-                      ),
-                    ),
-                  ],
-                );
-              },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+          child: Text(
+            AppLocalizations.of(context)!.dashboardTrend,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textSecondary,
+              letterSpacing: 1.2,
             ),
           ),
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            horizontalInterval: 40,
-            getDrawingHorizontalLine: (v) => FlLine(
-              color: Colors.grey.withValues(alpha: 0.1),
-              strokeWidth: 1,
-            ),
-          ),
-          extraLinesData: ExtraLinesData(
-            horizontalLines: [
-              HorizontalLine(
-                y: 110, // Centro da zona normal (80-140 aprox combinando sys/dia)
-                color: Colors.green.withValues(alpha: 0.05),
-                strokeWidth: 60,
-                label: HorizontalLineLabel(
-                  show: true,
-                  alignment: Alignment.topRight,
-                  labelResolver: (line) => 'NORMAL ZONE',
-                  style: const TextStyle(fontSize: 9, color: Colors.green),
-                ),
-              ),
-            ],
-          ),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                getTitlesWidget: (value, meta) {
-                  if (value.toInt() >= recentLeituras.length) return const SizedBox.shrink();
-                  final date = recentLeituras[value.toInt()].measuredAt;
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      '${date.day}/${date.month}',
-                      style: const TextStyle(fontSize: 9, color: Colors.grey),
-                    ),
-                  );
-                },
-              ),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 40, // Aumentado de 30 para 40
-                interval: 40,
-                getTitlesWidget: (value, meta) {
-                  return Text(
-                    value.toInt().toString(),
-                    style: const TextStyle(fontSize: 10, color: Colors.grey),
-                  );
-                },
-              ),
-            ),
-          ),
-          borderData: FlBorderData(show: false),
-          barGroups: recentLeituras.asMap().entries.map((e) {
-            final idx = e.key;
-            final leitura = e.value;
-            final cat = BloodPressureLogic.classify(leitura.systolic, leitura.diastolic);
-
-            return BarChartGroupData(
-              x: idx,
-              barRods: [
-                BarChartRodData(
-                  fromY: leitura.diastolic.toDouble(),
-                  toY: leitura.systolic.toDouble(),
-                  color: cat.color,
-                  width: 12,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ],
-            );
-          }).toList(),
         ),
-      ),
+        AppCard(
+          padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
+          margin: const EdgeInsets.all(16),
+          child: SizedBox(
+            height: 200,
+            child: BarChart(
+              BarChartData(
+                gridData: const FlGridData(show: false),
+                titlesData: FlTitlesData(
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 22,
+                      getTitlesWidget: (value, meta) {
+                        return Text('', style: AppTypography.textTheme.bodySmall);
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      interval: 40,
+                      reservedSize: 28,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          value.toInt().toString(),
+                          style: AppTypography.textTheme.bodySmall,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                minY: 40,
+                maxY: 180,
+                barGroups: recentLeituras.asMap().entries.map((e) {
+                  return BarChartGroupData(
+                    x: e.key,
+                    barRods: [
+                      BarChartRodData(
+                        fromY: e.value.diastolic.toDouble(),
+                        toY: e.value.systolic.toDouble(),
+                        color: AppColors.primary,
+                        width: 12,
+                        borderRadius: BorderRadius.circular(4),
+                        backDrawRodData: BackgroundBarChartRodData(
+                          show: true,
+                          toY: 180,
+                          color: AppColors.primary.withValues(alpha: 0.05),
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -485,47 +501,67 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       leitura.diastolic,
     );
 
-    return Dismissible(
-      key: Key(leitura.id ?? leitura.measuredAt.toIso8601String()),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: Colors.redAccent,
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      onDismissed: (_) {
-        if (leitura.id != null) {
-          ref
-              .read(readingsControllerProvider.notifier)
-              .deleteReading(leitura.id!);
-        }
-      },
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        leading: CircleAvatar(
-          backgroundColor: cat.color.withValues(alpha: 0.1),
-          child: Icon(Icons.favorite, color: cat.color, size: 20),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Dismissible(
+        key: Key(leitura.id ?? leitura.measuredAt.toIso8601String()),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          decoration: BoxDecoration(
+            color: Colors.redAccent,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Icon(Icons.delete, color: Colors.white),
         ),
-        title: Text(
-          '${leitura.systolic}/${leitura.diastolic}',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        subtitle: Text(_formatDate(leitura.measuredAt)),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              cat.label,
-              style: TextStyle(
-                color: cat.color,
+        onDismissed: (_) {
+          if (leitura.id != null) {
+            ref.read(readingsControllerProvider.notifier).deleteReading(leitura.id!);
+          }
+        },
+        child: AppCard(
+          padding: EdgeInsets.zero,
+          cornerRadius: 16,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cat.color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.favorite, color: cat.color, size: 24),
+            ),
+            title: Text(
+              '${leitura.systolic}/${leitura.diastolic}',
+              style: AppTypography.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
-                fontSize: 12,
+                fontSize: 20,
               ),
             ),
-            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
-          ],
+            subtitle: Text(
+              _formatDate(leitura.measuredAt),
+              style: AppTypography.textTheme.bodySmall,
+            ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  cat.label.toUpperCase(),
+                  style: TextStyle(
+                    color: cat.color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Icon(Icons.chevron_right, size: 16, color: AppColors.textSecondary),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -544,9 +580,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final leituras = ref.read(filteredReadingsProvider).value;
     if (leituras == null || leituras.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No entries to export')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('No entries to export')));
       }
       return;
     }
@@ -576,9 +612,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error generating report: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error generating report: $e')));
       }
     } finally {
       if (mounted) {
